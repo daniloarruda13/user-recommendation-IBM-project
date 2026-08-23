@@ -1,41 +1,136 @@
-# user-recommendation-IBM-project
+# IBM article recommendation engine
 
-This project contains a recommendation engine using the IBM-Watson data. This IBM platform is a website that provides articles about programming, data science, among others.
+This repository explores recommendation strategies for implicit article-reading
+data from the former IBM Watson Studio platform. The original Udacity-style
+notebook covers popularity, user-user collaborative filtering, text clustering,
+and dense singular value decomposition (SVD).
 
-## Files and Data
+The reusable `ibm_recommender` package provides deterministic data preparation,
+popularity and collaborative recommendations, explicit cold-start behavior, and
+ranking metrics suitable for implicit feedback.
 
--   **Recommendations_with_IBM.html / Recommendations_with_IBM.ipynb** : Those are the notebooks containing the Python script to perform the recommendations.
+## Data
 
--   **user_item_matrix.p** : This is the user-item matrix in pickly format. This was used throughout the notebook.
+The committed CSV files are small enough for local analysis:
 
--   **project_tests.py, top_5.p, top_10.p, top_20.p** : Those are files provided by Udacity to test the functions in the notebook.
+- `data/user-item-interactions.csv`: 45,993 interaction events, 714 interacted
+  articles, 5,148 identified users, and 17 anonymous events.
+- `data/articles_community.csv`: 1,056 rows representing 1,051 unique articles.
 
--   ***DATA*****:**
+Article IDs appear as both values such as `1429.0` and integers across the two
+sources. The package converts every integer-like ID to a canonical Python integer
+before joining, ranking, or checking whether an item has already been seen.
 
-    -   **articles_community.csv** : This is a spreadsheet with the descriptions of the articles, containing descriptions and titles.
+Anonymous activity remains valid for global popularity. For personalization,
+`encode_users(..., anonymous="drop")` excludes those rows by default instead of
+treating 17 unrelated anonymous events as one person. An explicit
+`anonymous="single"` mode is available when that assumption is intended.
 
-    -   **user-item-interactions.csv** : This is a spreadsheet with the users_id and their interaction (articles they read) to the articles.
+## Install
 
-## Installation
+Python 3.10 or newer is required.
 
--   Python 3.x
+```bash
+python -m pip install -e .
+```
 
--   [Nltk](https://www.nltk.org/)
+To inspect the historical notebook and its content-clustering sections, install
+the optional notebook stack:
 
--   [Pandas](http://pandas.pydata.org/)
+```bash
+python -m pip install -r requirements.txt
+```
 
--   [Numpy](https://numpy.org/)
+## Usage
 
--   [scikit-learn](http://scikit-learn.org/stable/)
+```python
+from ibm_recommender import (
+    article_names,
+    create_user_item_matrix,
+    encode_users,
+    load_interactions,
+    recommend_article_ids,
+    top_articles,
+)
 
-## Overview
+interactions = load_interactions("data/user-item-interactions.csv")
 
-The notebook includes a few recommendation strategies:
+# Popularity includes anonymous events.
+print(top_articles(interactions, 10))
 
-*Rank-based recommendations*: Items are ranked based on popularity or user ratings, and the top-ranked ones are recommended.
+# Personalized interactions exclude anonymous rows.
+personalized = encode_users(interactions)
+user_item = create_user_item_matrix(personalized)
+ids = recommend_article_ids(20, personalized, 10, user_item=user_item)
+print(article_names(ids, interactions))
+```
 
-*Collaborative recommendations*: Recommendations are made by analyzing user behavior and similarities among users.
+Known users receive articles scored by similarity-weighted neighbor activity,
+with global popularity and article ID used as deterministic tie-breakers. Seen
+articles are always excluded. Unknown users and users without positive neighbors
+receive unseen popularity recommendations.
 
-*Content-based recommendations*: Items are recommended based on their attributes and matching them with the user's preferences.
+## Evaluation
 
-*Matrix factorization (SVD)*: A technique that decomposes a user-item matrix to predict missing ratings or recommend new items.
+The data records reads, not ratings. A missing user-item entry means “not
+observed,” not “disliked.” Consequently, accuracy across a dense binary matrix is
+dominated by zeros and is not an informative recommender metric.
+
+The package supplies `precision_at_k`, `recall_at_k`, and `hit_rate_at_k`. For an
+offline evaluation, hold out each eligible user’s later interactions, generate
+recommendations from earlier events, and calculate ranking metrics only for users
+and items the method can score. Report cold-start coverage separately. In
+production, an A/B test should assess actual reading or engagement outcomes.
+
+## Historical notebook caveats
+
+`Recommendations_with_IBM.ipynb` and the rendered HTML remain historical course
+artifacts. The package addresses several issues without rewriting cached outputs:
+
+- `get_top_sorted_users` performs two independent sorts, making interaction count
+  the effective primary key instead of similarity.
+- Several collaborative ties are arbitrary; the package uses explicit stable
+  similarity, activity, and ID ordering.
+- The content recommender mixes string and integer article IDs when excluding
+  seen items and can stop a cluster scan prematurely.
+- The dense SVD evaluation predicts mostly unobserved zeros and reports accuracy,
+  which can appear high without producing useful top-N recommendations.
+- The original email mapper groups missing emails as a user. The package makes
+  the anonymous-user policy explicit.
+
+The four `.p` files are historical Python pickle artifacts. Pickle can execute
+code while loading and is version-sensitive; load these files only when their
+source is trusted. New code should regenerate the user-item matrix from the CSV
+rather than depend on the committed 29 MB pickle.
+
+The notebook’s `project_tests.py` is a course answer checker, not an isolated
+automated test suite: it reads repository data at import time and prints feedback
+instead of using test assertions consistently.
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Tests cover ID normalization, anonymous users, deterministic popularity, binary
+matrices, neighbor tie-breaking, seen-item exclusion, cold starts, ranking
+metrics, complete committed CSV dimensions, the real popularity baseline, and
+the full 5,148-by-714 real user-item matrix.
+
+## Repository structure
+
+- `ibm_recommender/data.py`: loaders, ID normalization, and stable user encoding.
+- `ibm_recommender/ranking.py`: popularity and ordered title lookup.
+- `ibm_recommender/matrix.py`: binary matrices and neighbor ordering.
+- `ibm_recommender/recommend.py`: collaborative and cold-start recommendations.
+- `ibm_recommender/metrics.py`: top-k implicit-feedback metrics.
+- `tests/`: synthetic and committed-data regression tests.
+- `Recommendations_with_IBM.ipynb` / `.html`: historical exploratory report.
+- `project_tests.py`: retained course answer checker.
+
+## License and data reuse
+
+No software or data license is currently declared. Copyright remains with the
+respective authors and data providers; obtain permission before reuse beyond
+applicable legal rights.
